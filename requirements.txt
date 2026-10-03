@@ -1,0 +1,8 @@
+# 运行图形界面版只需要 Python 标准库（tkinter 随 Python 一起安装），
+# 不需要任何第三方包。
+#
+# 只有「把程序打包成单文件 exe」时才需要额外装 PyInstaller：
+#
+#     pip install -r requirements.txt
+#
+pyinstaller>=6.0

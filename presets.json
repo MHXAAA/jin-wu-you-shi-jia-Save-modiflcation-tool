@@ -1,0 +1,203 @@
+{
+  "_readme": "《吾今有世家》存档修改器预设。risk: safe=文档明确标注 / assumed=推导，未经逐项验证 / danger=可能毁档。only_up=只增不减，only_down=只减不增，cmp_sub=N 表示比较复合串（用 | 分隔）的第 N 段。所有预设都建议先 --dry-run。",
+
+  "money": {
+    "desc": "铜钱与元宝（默认【只增不减】，不会把你已有的钱改少）",
+    "risk": "safe",
+    "note": "only_up 保护：新值不大于原值就跳过。你的存档若已有 9.8 亿铜钱，这个预设不会把它削成 100 万。真要调低请用「自定义修改」。",
+    "params": { "copper": 999999999, "yuanbao": 9999999 },
+    "ops": [
+      { "path": "CGNum.value[0]", "from_param": "copper", "only_up": true },
+      { "path": "CGNum.value[1]", "from_param": "yuanbao", "only_up": true }
+    ]
+  },
+
+  "retainers-10": {
+    "desc": "★ 生成 10 个神级门客（四维 999、评分 100、寿命 99，外加天赋与专精技能）",
+    "risk": "safe",
+    "note": "门客记录是【自包含】的：一条门客的 M-ID 在整个存档文件里只出现一次（就在 MenKe_Now.value 里），没有任何其它字段引用它 —— 所以在 227KB 真实存档上逐 ID 全文检索验证过，可以凭空追加，不需要同步任何别的地方。22 格模板逐格抄自一份游戏自己生成、且已被拉到满值的真实门客（杭祺剑）；除 [0] ID、[1] 形象码、[2] 里的姓名/性别/寿命/天赋/专精、[16] 熟练度外全部原样保留，写进去的每个数值游戏都已经成功加载过。性别和形象码成对从真实组合里取，不会出现游戏自己从不生成的状态。一次最多 50 个，超过会拒绝以免存档暴涨读档超时。天赋/专精字段位置经真机读档核对。",
+    "params": { "count": 10, "names": "", "name_mode": "history",
+                "talent": "auto", "potential": 100,
+                "skill": "auto", "proficiency": 100 },
+    "ops": [
+      { "type": "add_retainers", "path": "MenKe_Now.value",
+        "count_param": "count", "names_param": "names", "mode_param": "name_mode",
+        "talent_param": "talent", "potential_param": "potential",
+        "skill_param": "skill", "prof_param": "proficiency" }
+    ]
+  },
+
+  "person-traits": {
+    "desc": "★ 给门客/族人设「天赋」与「专精技能」四件套",
+    "risk": "safe",
+    "note": "四项字段位置全部经真机读档核对：写进存档→进游戏读档→面板逐项按预期变化。天赋类型ID：0无 1文学 2武学 3商业 4艺术。天赋潜力 0–100。专精显示ID：0无 1巫 2医 3相 4卜 5媚 6工。熟练度：0=技能不生效，1–99 初级~高级，100 大师。四项任意一项留空即「不动这一项」。注意：专精ID 与熟练度是【解耦】的 —— 只写专精会出现「面板显示技能名但功能不生效」，两个都要写才真正能用。族人（Member_now）的熟练度列是靠 40:1 样本比对推出来的，尚未真机确认；门客列已确认。",
+    "params": { "scope": "all", "names": "",
+                "talent": "", "potential": "", "skill": "", "proficiency": "" },
+    "ops": [
+      { "type": "set_traits", "scope_param": "scope", "names_param": "names",
+        "talent_param": "talent", "potential_param": "potential",
+        "skill_param": "skill", "prof_param": "proficiency" }
+    ]
+  },
+
+  "all-items-max": {    "desc": "★ 仓库里【每一种】物品都拉到 999 万（默认只补不足的，已有的多不退少补）",
+    "risk": "safe",
+    "note": "遍历 Prop_have.value 的每一行，把数量不足 9999999 的补上去。默认带 only_up 保护：本来就已经超过 999 万的物品【原样不动】—— 真实存档里粮食有 5005 万，无脑覆盖会一次砍掉 4000 万，正是当年 money 预设踩过的坑。想强制降下来就把 only_up 设成 0。数量不是数字的条目会自动跳过。",
+    "params": { "value": 9999999, "only_up": 1 },
+    "ops": [
+      { "type": "max_all_items", "path": "Prop_have.value",
+        "value_param": "value", "only_up_param": "only_up" }
+    ]
+  },
+
+  "family-data": {
+    "desc": "家族等级与经验（只增不减）",
+    "risk": "safe",
+    "params": { "level": 99, "exp": 9999999 },
+    "ops": [
+      { "path": "FamilyData.value[2]", "from_param": "level", "only_up": true },
+      { "path": "FamilyData.value[3]", "from_param": "exp", "only_up": true }
+    ]
+  },
+
+  "time": {
+    "desc": "设定当前日期 Time_now.value = [年,月,日]",
+    "risk": "assumed",
+    "note": "真实存档实测 [13,1,16]，与 [年,月,日] 相符。此项【没有】只增不减保护——日期本来就需要能往前调。",
+    "params": { "year": 1, "month": 1, "day": 1 },
+    "ops": [
+      { "path": "Time_now.value[0]", "from_param": "year" },
+      { "path": "Time_now.value[1]", "from_param": "month" },
+      { "path": "Time_now.value[2]", "from_param": "day" }
+    ]
+  },
+
+  "garrison": {
+    "desc": "禁军兵力与士气（兵力只增不减）",
+    "risk": "safe",
+    "note": "KingCityData_now.value[0] = \"兵力|士气\"。cmp_sub=0 表示只拿第 0 段（兵力）和原值比。",
+    "params": { "troops": 999999, "morale": 100 },
+    "ops": [
+      { "path": "KingCityData_now.value[0]", "value": "{troops}|{morale}",
+        "only_up": true, "cmp_sub": 0, "delim": "|" }
+    ]
+  },
+
+  "city-army": {
+    "desc": "第一个郡城的势力/兵力/士气/友好度（整串重写）",
+    "risk": "safe",
+    "note": "CityData_now 是三层嵌套，主城串在 value[0][0][0]，格式 \"势力|兵力|士气|友好度\"。此项【不加】only_up：势力/士气/友好度是玩家要主动改的，若因为兵力比较小就整条跳过，反而改不动。改动前看预览即可。",
+    "params": { "faction": 12, "troops": 999999, "morale": 100, "friendly": 100 },
+    "ops": [
+      { "path": "CityData_now.value[0][0][0]", "value": "{faction}|{troops}|{morale}|{friendly}" }
+    ]
+  },
+
+  "houses-favor": {
+    "desc": "重写各世家的「对其他世家好感度」字段（ShiJia_Now.value[i][8]）",
+    "risk": "assumed",
+    "note": "真实存档实测索引 8 = \"1@10|9@7.8\"，确认无误（索引 7 是影响力，别搞混）。本预设整体替换，会覆盖原有全部关系。",
+    "params": { "favor": "0@10|1@10|2@10|3@10|4@10|5@10|6@10|7@10|8@10|9@10" },
+    "foreach": "ShiJia_Now.value",
+    "ops": [
+      { "path": "ShiJia_Now.value[{i}][8]", "from_param": "favor" }
+    ]
+  },
+
+  "member-max": {
+    "desc": "家族全体族人：文/武/商/艺/心情/声誉/魅力/健康/计谋 拉满（只增不减）",
+    "risk": "safe",
+    "note": "43 格索引已用真实存档（V0.9.03，41 人）逐格核验通过。only_up 保证不会把已经超过 100 的值压下去。",
+    "params": { "value": 100 },
+    "foreach": "Member_now.value",
+    "ops": [
+      { "path": "Member_now.value[{i}][7]",  "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][8]",  "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][9]",  "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][10]", "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][11]", "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][16]", "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][20]", "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][21]", "from_param": "value", "only_up": true },
+      { "path": "Member_now.value[{i}][27]", "from_param": "value", "only_up": true }
+    ]
+  },
+
+  "member-immortal": {
+    "desc": "全员寿命拉长 + 健康拉满 + 孕率归零（寿命/健康只增不减，孕率只减不增）",
+    "risk": "safe",
+    "note": "寿命在指数 4 那个串里按 | 切开的第 5 段。孕率指数 34，越小越容易怀孕（≥100 为不孕），所以用 only_down。",
+    "params": { "lifespan": 999, "health": 100, "fertility": 0 },
+    "foreach": "Member_now.value",
+    "ops": [
+      { "path": "Member_now.value[{i}][4]",  "sub": 5, "delim": "|",
+        "from_param": "lifespan", "only_up": true },
+      { "path": "Member_now.value[{i}][21]", "from_param": "health", "only_up": true },
+      { "path": "Member_now.value[{i}][34]", "from_param": "fertility", "only_down": true }
+    ]
+  },
+
+  "member-young": {
+    "desc": "全员年轻化：把族人的年龄压到 20 上下，防自然老死（只降不升）",
+    "risk": "safe",
+    "note": "年龄是 Member_now.value[i][6]，已在真实存档逐格核验（李海 30 岁对应 [6]='30'）。only_down 是关键：只把【比你填的更大】的人调下来，本来就更年轻的一律不动 —— 绝不会把 16 岁的孩子改成 20 岁。门客的年龄在第 [3] 格，是另一套结构，本预设不碰。",
+    "params": { "age": 20 },
+    "foreach": "Member_now.value",
+    "ops": [
+      { "path": "Member_now.value[{i}][6]", "from_param": "age", "only_down": true }
+    ]
+  },
+
+  "member-clear-status": {
+    "desc": "清除家族全体族人的负面状态（贬谪/流放/杖责/出征 等，index 15 → 0）",
+    "risk": "safe",
+    "note": "这项【没有】只增不减保护——目标就是把状态归零。",
+    "params": { "value": 0 },
+    "foreach": "Member_now.value",
+    "ops": [
+      { "path": "Member_now.value[{i}][15]", "from_param": "value" }
+    ]
+  },
+
+  "member-due": {
+    "desc": "家族全体族人：怀孕月份设为 1（转月立即生育）",
+    "risk": "danger",
+    "note": "⚠ 会把所有人（含男性、老人）的该字段都设成 1，可能一次冒出几十个婴儿。建议用「自定义修改」对指定的人操作：Member_now.value[0][25]",
+    "params": { "months": 1 },
+    "foreach": "Member_now.value",
+    "ops": [
+      { "path": "Member_now.value[{i}][25]", "from_param": "months" }
+    ]
+  },
+
+  "slaves": {
+    "desc": "设定奴隶数量（只写 VisionIndex.value）",
+    "risk": "assumed",
+    "note": "！！已根据真实存档修正：NuLiNum 在你的存档里是 1410001110，显然不是奴隶数，绝不能碰。VisionIndex 才是（你的存档里是 0）。本预设有意只写 VisionIndex。",
+    "params": { "count": 9999 },
+    "ops": [
+      { "path": "VisionIndex.value", "from_param": "count", "only_up": true }
+    ]
+  },
+
+  "add-items": {
+    "desc": "往家族仓库添加/设置物品（Prop_have.value）",
+    "risk": "safe",
+    "note": "真实存档里 Prop_have 是 [[\"3\",\"70888\"], …]，与本预设假设一致。items 用 \"编号:数量,编号:数量\"；mode=set 覆盖，mode=add 累加。",
+    "params": { "items": "169:1,170:1,171:1,172:1", "mode": "add" },
+    "ops": [
+      { "type": "add_items", "path": "Prop_have.value" }
+    ]
+  },
+
+  "cheap-prices": {
+    "desc": "把所有郡城的物价改写为指定值（PropPrice_Now.value[i][j] = \"物品编号|价格\"）",
+    "risk": "assumed",
+    "note": "真实存档里是 12 组、每组约 32 条，格式 \"2|95\" 与假设一致。但文档没说价格高低对买卖的方向影响，改完请回游戏确认。此项无只增不减保护。",
+    "params": { "price": 1 },
+    "foreach": ["PropPrice_Now.value", "PropPrice_Now.value[{i}]"],
+    "ops": [
+      { "path": "PropPrice_Now.value[{i}][{j}]", "sub": 1, "delim": "|", "from_param": "price" }
+    ]
+  }
+}

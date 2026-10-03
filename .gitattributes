@@ -1,0 +1,14 @@
+# 统一行尾：仓库里一律 LF，避免 Windows 上每次提交都冒出
+# "LF will be replaced by CRLF" 的噪音，也让 diff 干净。
+* text=auto eol=lf
+
+# 二进制资源不要做任何行尾转换
+*.png binary
+*.ico binary
+*.jpg binary
+*.gif binary
+*.zip binary
+*.exe binary
+
+# 存档相关一律当二进制，防止任何意外转换
+*.es3 binary
