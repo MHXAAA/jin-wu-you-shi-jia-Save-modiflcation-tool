@@ -37,6 +37,10 @@
 一个纯图形界面的**《吾今有世家》**存档编辑器。双击打开窗口，点几下鼠标就能改存档 ——
 不用记参数、不用敲命令、不用背菜单号。
 
+> ### 📥 [**点这里下载最新版**](https://github.com/MHXAAA/jin-wu-you-shi-jia-Save-modiflcation-tool/releases/latest)
+> 下载 `WuJinYouShiJia-SaveEditor-v1.0.exe`，双击即用，不需要装 Python。
+> （附件名是英文的，原因见 [使用方法](#方式一直接下载可执行程序推荐)）
+
 ---
 
 ## 一、特性
@@ -54,13 +58,34 @@
 
 ### 1. 运行
 
-**如果你拿到的是打包好的 exe**：直接双击 `吾今有世家存档编辑器.exe`，不用装任何东西。
+#### 方式一：直接下载可执行程序（推荐）
 
-**如果你拿到的是源码**：需要 Python 3.10 以上（含 tkinter，Windows 官方安装包默认自带），然后：
+到 [Releases 页面](https://github.com/MHXAAA/jin-wu-you-shi-jia-Save-modiflcation-tool/releases/latest)
+下载 **`WuJinYouShiJia-SaveEditor-v1.0.exe`**，双击即可运行，**不需要安装 Python**。
+
+> ⚠️ **注意文件名是英文的**：GitHub 的 Release 附件名**只接受 ASCII 字符**，
+> 中文文件名会被静默丢弃、退回成没有意义的 `default.exe`。
+> 所以发布出来的附件叫 `WuJinYouShiJia-SaveEditor-v1.0.exe`，
+> 但程序运行起来窗口标题仍然是中文的「《吾今有世家》存档编辑器」—— 是同一个程序。
+
+下载后如果浏览器提示「不常见的文件，可能有害」，是因为这个 exe **没有购买代码签名证书**。
+可以选择「保留」。想自己验证的话，比对 SHA256：
+
+```
+2b1ee96f408c28818eb9b09ef23af3411ebfec1bda46513f04c4b3df06ef1500
+```
+
+#### 方式二：从源码运行
+
+需要 Python 3.10 以上（含 tkinter，Windows 官方安装包默认自带），然后：
 
 ```
 python gui.py
 ```
+
+#### 方式三：自己打包成单文件 exe
+
+见下面「[三、编译打包](#三编译打包生成单文件-exe)」。
 
 ### 2. 让它找到你的存档
 
