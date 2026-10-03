@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""《吾今有世家》存档修改器 —— 图形界面。
+"""《吾今有世家》存档编辑器 —— 图形界面。
 
 同一份 presets.json、同一套修改操作、同一条「备份 → 原子替换 → 写后复校 → 记历史」落盘路径。
 
@@ -29,7 +29,7 @@ import history as hist          # noqa: E402
 import paths                    # noqa: E402
 import save_editor as se        # noqa: E402
 
-APP_TITLE = "《吾今有世家》存档修改器"
+APP_TITLE = "《吾今有世家》存档编辑器"
 PRESET_FILE = paths.res_file("presets.json")
 LAST_PATH_FILE = paths.state_file("last_gui_path.txt")
 

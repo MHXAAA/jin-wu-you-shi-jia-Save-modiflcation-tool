@@ -1,5 +1,5 @@
 {
-  "_readme": "《吾今有世家》存档修改器预设。risk: safe=文档明确标注 / assumed=推导，未经逐项验证 / danger=可能毁档。only_up=只增不减，only_down=只减不增，cmp_sub=N 表示比较复合串（用 | 分隔）的第 N 段。所有预设都建议先 --dry-run。",
+  "_readme": "《吾今有世家》存档编辑器预设。risk: safe=文档明确标注 / assumed=推导，未经逐项验证 / danger=可能毁档。only_up=只增不减，only_down=只减不增，cmp_sub=N 表示比较复合串（用 | 分隔）的第 N 段。所有预设都建议先 --dry-run。",
 
   "money": {
     "desc": "铜钱与元宝（默认【只增不减】，不会把你已有的钱改少）",

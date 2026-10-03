@@ -32,7 +32,6 @@
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -52,9 +51,28 @@ EXCLUDE = ["unittest", "pydoc", "lib2to3", "test", "distutils",
            "email", "html", "http", "xmlrpc", "pdb", "doctest"]
 
 
+def _pyinstaller_ok() -> bool:
+    """检查 PyInstaller 能不能用。
+
+    ⚠ 不要用 shutil.which("pyinstaller") 判断：pip 把包装成模块后，
+    命令行脚本所在的目录（Scripts\\）不一定在 PATH 上，
+    但 `python -m PyInstaller` 是完全可用的 —— 用 which 判断会误报
+    「没装」，然后把一个本来能用的环境拒之门外。
+    """
+    try:
+        r = subprocess.run([sys.executable, "-m", "PyInstaller", "--version"],
+                           capture_output=True, text=True, timeout=60)
+    except Exception:
+        return False
+    if r.returncode != 0:
+        return False
+    print(f"PyInstaller {r.stdout.strip()}")
+    return True
+
+
 def main() -> int:
-    if shutil.which("pyinstaller") is None:
-        print("找不到 pyinstaller。先装一下：")
+    if not _pyinstaller_ok():
+        print("找不到 PyInstaller。先装一下：")
         print("    pip install pyinstaller")
         return 1
 

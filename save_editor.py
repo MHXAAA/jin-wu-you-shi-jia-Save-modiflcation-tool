@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-《吾今有世家》存档修改器  —  gamedata
+《吾今有世家》存档编辑器  —  gamedata
 
 针对版本 V0.7.292 的 gamedata 结构编写，依据的是官方群共享的《存档修改》文档。
 
