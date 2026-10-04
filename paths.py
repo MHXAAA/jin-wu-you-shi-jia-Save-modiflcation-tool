@@ -125,7 +125,7 @@ def autodetect_all() -> list:
     """在常见位置找出【所有】含 GameData.es3 的文件夹，按可信度排序。
 
     放在 paths.py 而不是菜单里：图形界面和菜单界面都要用它找存档，
-    调用方不用自己再写一份。
+    而界面层不该为了这一个函数再去拖一个用不上的模块进来。
     """
     home = Path(os.environ.get("USERPROFILE", r"C:\Users\Default"))
     roots = [

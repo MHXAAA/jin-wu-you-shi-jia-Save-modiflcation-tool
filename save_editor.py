@@ -30,6 +30,7 @@
 """
 
 from __future__ import annotations
+
 import json
 import random
 import re
@@ -43,7 +44,7 @@ import paths                       # 只读资源 vs 可写状态，见 paths.py
 
 # ---------------------------------------------------------------- 输出编码
 
-try:  # Windows 控制台默认 GBK，中文会炸，这里强制 UTF-8
+try:  # Windows 终端默认 GBK，中文会炸，这里强制 UTF-8
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:  # pragma: no cover
@@ -110,7 +111,7 @@ def set_path(data, path: str, value) -> None:
 
 def coerce_like(old, new_text: str, raw: bool = False):
     """
-    把外部给的字符串，按 old 的类型写回去。
+    把用户给的字符串，按 old 的类型写回去。
     这是本工具最关键的安全阀：字符串槽位永远写字符串。
     """
     if raw:
@@ -399,13 +400,28 @@ MEMBER_LAYOUT = {
         "label": "门客", "info": 2, "prof": 16,
         "seg_talent": 2, "seg_potential": 3, "seg_skill": 6,
         "verified": True,      # 真机读档确认过
+        "prof_verified": True,
     },
     "Member_now": {
         "label": "族人", "info": 4, "prof": 33,
         "seg_talent": 2, "seg_potential": 3, "seg_skill": 6,
         "verified": False,     # 靠 40:1 样本比对推出，尚未真机确认
+        # ⚠ prof_verified=False：后来发现 [33] 这一格在真实存档里只出现 0 / 1，
+        #   而门客那个核对过的熟练度格 [16] 是完整的 0–100 分布
+        #   （100/90/80/…/0）。二值取值不像熟练度，更像「有没有专精」之类的开关。
+        #   往一个含义没定的格子里写 100 是在赌，所以默认不碰它。
+        "prof_verified": False,
     },
 }
+
+
+def prof_writable(lay: dict, force: bool = False) -> bool:
+    """这一张成员表的「熟练度」格能不能安全写。
+
+    门客的格核对过 → 能写；族人的格没核对过、而且实测取值是二值 → 不写。
+    想强行写就传 force=True（界面上是那个带警告的勾选框）。
+    """
+    return bool(force) or bool(lay.get("prof_verified"))
 
 
 def menke_all_ids(data) -> set:
@@ -618,6 +634,151 @@ def op_set_traits(data, op: dict, params: dict, changes: list, dry: bool) -> int
 
             if touched:
                 rows_touched += 1
+
+    return rows_touched
+
+
+# 族人行里属于「属性」的格子。逐格含义是让引擎的成员索引工具
+# （cmd_members，图形界面「人物与技能」页同样数据）打出来的：
+#   6 年龄 · 7 文 · 8 武 · 9 商 · 10 艺 · 11 心情 · 16 声誉
+#   20 魅力 · 21 健康 · 27 计谋
+# ⚠ 刻意【不含第 30 格「体力」】：体力是行动点池，成年人是 22、
+#   幼年人等于自己的岁数。把它当成属性拉满会给出一个游戏从没设计过的
+#   数值，所以「属性拉满」不碰它。
+FAMILY_ATTR_SLOTS = (7, 8, 9, 10, 11, 16, 20, 21, 27)
+
+
+def _to_float(s):
+    """能转成数字就转，不能就返回 None（存档里这些格子偶尔是空串）。"""
+    try:
+        return float(str(s).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def op_family_all(data, op: dict, params: dict, changes: list, dry: bool) -> int:
+    """★ 家族成员一键修改：全部族人（含幼年成员）年龄、属性、天赋、技能。
+
+    一次性把整张族人表处理掉，不需要逐行挑人：
+
+      · 年龄  —— 统一写成一个值（默认 20）。⚠ 这是【双向】的：
+                 幼年成员会被【提升】到 20 岁，成年人会被【压低】到 20 岁。
+                 用户明确要求「含幼年成员」，所以这里不加 only_down 保护。
+      · 属性  —— 文/武/商/艺/心情/声誉/魅力/健康/计谋 全部拉到 value（默认 100）。
+                 带 only_up：本来就超过 100 的不会被动（只升不降）。
+      · 天赋  —— 随机 1–4（0 是「无」，所以从 1 起）
+      · 潜力  —— 拉满
+      · 技能  —— 【随机分配】1–6（巫医相卜媚工），每个人拿到的可能不同
+      · 熟练度 —— 配套写满。专精 ID 和熟练度是解耦的，只写 ID 游戏里
+                  会显示技能名但不生效，两个都要写。
+
+    「随机」用独立 Random 实例，seed 参数固定后结果可复现（测试要用）。
+    """
+    fname = op.get("field", "Member_now")
+    lay = MEMBER_LAYOUT[fname]
+    bucket = get_path(data, op.get("path", f"{fname}.value"))
+    if not isinstance(bucket, list):
+        raise TypeError(f"{fname}.value 不是列表")
+
+    age_slot = int(op.get("age_slot", 6))
+    # ⚠ 第 30 格实测在【每一行】都等于第 6 格（真实存档 17 行 + 测试副本 41 行，
+    #   58/58 全部相等），是年龄的镜像格。只改第 6 格会留下两处年龄不一致，
+    #   所以两个格子一起写，保持同步。
+    age_slots = tuple(op.get("age_slots", (age_slot, 30)))
+    attr_slots = tuple(op.get("attr_slots", FAMILY_ATTR_SLOTS))
+
+    age = trait_value(params.get(op.get("age_param", "age"), ""), 0, 999, "年龄")
+    value = trait_value(params.get(op.get("value_param", "value"), ""), 0, 100, "属性值")
+    potential = trait_value(params.get(op.get("potential_param", "potential"), ""), 0, 100,
+                            "天赋潜力")
+    proficiency = trait_value(params.get(op.get("prof_param", "proficiency"), ""), 0, 100,
+                              "熟练度")
+    talent_mode = str(params.get(op.get("talent_param", "talent_mode"), "random")).strip().lower()
+    skill_mode = str(params.get(op.get("skill_param", "skill_mode"), "random")).strip().lower()
+    seed = params.get(op.get("seed_param", "seed"))
+    force_prof = str(params.get(op.get("force_prof_param", "force_prof"), "")).strip().lower() \
+        in ("1", "true", "yes", "on", "y", "是", "勾", "写")
+
+    import random as _random
+    rng = _random.Random(int(seed)) if str(seed).strip() not in ("", "0", "None") else _random.Random()
+
+    rows_touched = 0
+    for i, row in enumerate(bucket):
+        if not isinstance(row, list) or len(row) <= max(max(age_slots), max(attr_slots),
+                                                        lay["prof"]):
+            continue
+        if len(row) <= lay["info"]:
+            continue
+        name = str(row[lay["info"]]).split("|")[0]
+        touched = False
+        label = f"{fname}.value[{i}]（{name}）"
+
+        # ---- 年龄：双向写入，两个镜像格一起写 ----
+        if age is not None:
+            for slot in age_slots:
+                if _to_float(row[slot]) == float(age):
+                    continue
+                old = row[slot]
+                changes.append(Change(f"{label}[{slot}] 年龄", old, str(age)))
+                if not dry:
+                    row[slot] = str(age)
+                touched = True
+
+        # ---- 属性：只升不降 ----
+        if value is not None:
+            for slot in attr_slots:
+                cur = _to_float(row[slot])
+                if cur is None or cur >= value:
+                    continue
+                old = row[slot]
+                changes.append(Change(f"{label}[{slot}] 属性", old, str(value)))
+                if not dry:
+                    row[slot] = str(value)
+                touched = True
+
+        # ---- 天赋 / 潜力 / 技能 / 熟练度 ----
+        seg = str(row[lay["info"]]).split("|")
+        if len(seg) > max(lay["seg_talent"], lay["seg_potential"], lay["seg_skill"]):
+            new_seg = list(seg)
+
+            if talent_mode and talent_mode not in ("keep", "none", "-1", ""):
+                t = rng.randint(1, 4) if talent_mode in ("random", "rand", "随机") else 1
+                if new_seg[lay["seg_talent"]] != str(t):
+                    new_seg[lay["seg_talent"]] = str(t)
+                    touched = True
+
+            if potential is not None and new_seg[lay["seg_potential"]] != str(potential):
+                new_seg[lay["seg_potential"]] = str(potential)
+                touched = True
+
+            if skill_mode and skill_mode not in ("keep", "none", "-1", ""):
+                s = rng.randint(1, 6) if skill_mode in ("random", "rand", "随机") else 1
+                if new_seg[lay["seg_skill"]] != str(s):
+                    new_seg[lay["seg_skill"]] = str(s)
+                    touched = True
+
+            joined = "|".join(new_seg)
+            if joined != str(row[lay["info"]]):
+                changes.append(Change(f"{label}[{lay['info']}] 基本信息", row[lay["info"]], joined))
+                if not dry:
+                    row[lay["info"]] = joined
+                touched = True
+
+        if proficiency is not None and prof_writable(lay, force_prof):
+            old_p = str(row[lay["prof"]])
+            if old_p != str(proficiency):
+                changes.append(Change(f"{label}[{lay['prof']}] 熟练度", old_p, str(proficiency)))
+                if not dry:
+                    row[lay["prof"]] = str(proficiency)
+                touched = True
+
+        if touched:
+            rows_touched += 1
+
+    if proficiency is not None and not prof_writable(lay, force_prof):
+        print(f"  [提示] {fname} 的「熟练度」格（第 {lay['prof']} 格）没在真机上核对过，"
+              f"实测取值只有 0/1，不像 0–100 的熟练度，所以这一项没写。"
+              f"专精（技能）已经写进去了。")
 
     return rows_touched
 
@@ -847,6 +1008,10 @@ def apply_op(data, op: dict, params: dict, changes: list, dry: bool) -> int:
     if kind == "set_traits":
         return op_set_traits(data, op, params, changes, dry)
 
+    # ---- 特殊：家族全员一键修改 ----
+    if kind == "family_all":
+        return op_family_all(data, op, params, changes, dry)
+
     # ---- 普通赋值 ----
     raw_text = (str(params[op["from_param"]]) if "from_param" in op
                 else render_template(str(op.get("value", "")), params))
@@ -913,7 +1078,7 @@ def run_jobs(save, jobs, presets: dict, dry: bool = False):
       · 特例   —— ("__custom__", {"path": "CGNum.value[0]", "value": "999"})
                   直接改某个字段，对应菜单的「自定义修改」
 
-    这样「界面上点出来的需求」和「预设文件里的规则」就是同一种结构，
+    这样「修改器问出来的需求」和「监视器反复套用的规则」就是同一种结构，
     两边不用各写一套。
     """
     changes: list = []
@@ -972,6 +1137,9 @@ def run_preset(save: Save, name: str, presets: dict, overrides: dict, dry: bool)
     return changes
 
 
+# ---------------------------------------------------------------- 视图
+
+
 def disp_width(s: str) -> int:
     """中日韩字符占两个西文字符宽，用它来对齐表格。"""
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
@@ -1014,6 +1182,7 @@ def cmd_keys(args):
             print("  " + pad(k, 26) + pad(lay, 14) + pad(shape, 16) + etype)
         print("\n  注：[] 的个数就是 set/preset 里要写的 [i][j][k] 层数。")
 
+
 MEMBER_FIELDS = [
     ("0  编号", None), ("1  形象", None), ("2  子嗣", None), ("3  居所", None),
     ("4  基本信息", None), ("5  性格/脸", None), ("6  年龄", None),
@@ -1024,6 +1193,10 @@ MEMBER_FIELDS = [
     ("23 特殊标签", None), ("25 怀孕月", None), ("26 婚姻", None),
     ("27 计谋", None), ("30 体力", None), ("33 技能点", None), ("34 孕率", None),
 ]
+
+
+# ---------------------------------------------------------------- 命令
+
 
 def record_history(save, title, changes, bak) -> None:
     """把这次改动记进历史（供「撤销上一次改动」用）。
@@ -1037,3 +1210,5 @@ def record_history(save, title, changes, bak) -> None:
     except Exception as e:                                    # pragma: no cover
         print(f"  （历史记录没写成，不影响存档：{e}）")
 
+
+# ---------------------------------------------------------------- 入口

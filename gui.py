@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""《吾今有世家》存档编辑器 —— 图形界面。
+"""《吾今有世家》存档编辑器 —— 图形界面版。
 
-同一份 presets.json、同一套修改操作、同一条「备份 → 原子替换 → 写后复校 → 记历史」落盘路径。
+全部改动都汇聚到同一套引擎（save_editor.py）：
+同一份 presets.json、同一套 op、同一条「备份 → 原子替换 → 写后复校 → 记历史」落盘路径。
+界面上每个按钮都只是往这套引擎里递一份「待改清单」，真正写文件的那段代码只有一处。
 
-主要好处：
-  · 改之前一眼看到全部改动清单，确认了才写盘
+图形界面额外的好处：
+  · 改之前一眼看到全部改动清单，确认后才落盘
   · 人物表直接列出每个人的天赋 / 天赋潜力 / 专精 / 熟练度，勾选就能改
-  · 存档路径、备份、撤销都是按钮
+  · 存档路径、备份、撤销都是按钮，不用记菜单号
 """
 
 from __future__ import annotations
@@ -31,7 +33,35 @@ import save_editor as se        # noqa: E402
 
 APP_TITLE = "《吾今有世家》存档编辑器"
 PRESET_FILE = paths.res_file("presets.json")
+ITEM_NAME_FILE = paths.res_file("item_names.json")
 LAST_PATH_FILE = paths.state_file("last_gui_path.txt")
+
+
+def load_item_names() -> dict:
+    """读取「物品编号 → 名称」对照表。
+
+    存档里 Prop_have 只存数字编号，看着就是 [[\"2\",\"55173235\"], …]，
+    根本不知道 2 是粮食还是别的。这张表把编号翻成中文名，
+    仓库页才能做成勾选式。
+
+    读不到就返回空表 —— 界面退化成「只能手填编号」，而不是整个程序打不开。
+    数据文件缺失、被改坏、编码不对，都不该让用户连界面都进不去。
+    """
+    try:
+        raw = json.loads(ITEM_NAME_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    items = raw.get("items") if isinstance(raw, dict) else raw
+    if not isinstance(items, dict):
+        return {}
+    out = {}
+    for k, v in items.items():
+        if str(k).isdigit() and isinstance(v, str) and v.strip():
+            out[str(k)] = v.strip()
+    return out
+
+
+ITEM_NAMES = load_item_names()
 
 TALENT_CHOICES = ["（不改）", "无", "文学", "武学", "商业", "艺术"]
 TALENT_IDS = {"（不改）": None, "无": 0, "文学": 1, "武学": 2, "商业": 3, "艺术": 4}
@@ -57,14 +87,19 @@ COLORS = {
 REQUIRED_PRESETS = [
     "money", "member-max", "member-immortal", "member-young",
     "member-clear-status", "all-items-max", "add-items", "garrison",
-    "retainers-10", "person-traits",
+    "retainers-10", "person-traits", "member-all-max", "inventory-cap",
 ]
 
-# 「一键全改」用的组合：铜钱元宝 → 全员属性 → 全员长寿健康 → 清负面状态。
-# 数值一律以 presets.json 为准，这里不覆盖任何参数 ——
-# 参数写死在代码里，改预设时就会对不上（曾经把 copper 写死，
-# 配上 only_up 之后一键全改就再也加不了钱）。
-ONECLICK = ["money", "member-max", "member-immortal", "member-clear-status"]
+# 「一键全改」用的组合。数值一律以 presets.json 为准，这里不覆盖任何参数 ——
+# 以前这里自己写死过 copper，配上 only_up 之后一键全改就再也加不了钱。
+#
+# inventory-cap 是本轮加的：它只把库存上限调高、带 only_up，
+# 属于「解决爆仓」的安全项，放进一键全改不会伤到已有数据。
+# ⚠ member-all-max【没有】放进来 —— 它会把年龄统一写成 20（包括把幼年成员
+#   提到 20 岁），是需求里单独要的一个按钮。塞进「一键全改」会让老用户
+#   点一下就把孩子的年龄也改了，所以保持一键全改的语义不变。
+ONECLICK = ["money", "member-max", "member-immortal", "member-clear-status",
+            "inventory-cap"]
 
 
 def check_presets(presets: dict) -> list:
@@ -173,6 +208,10 @@ class App(tk.Tk):
         self.nb.add(self.tab_tools, text="工具")
         self.nb.add(self.tab_log, text="改动日志")
 
+        # 切到「仓库与势力」页时顺手把库存上限的现值读出来，
+        # 用户一眼就能看到「种类数 > 上限」这个爆仓证据。
+        self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
         self._build_common()
         self._build_retainers()
         self._build_members()
@@ -187,6 +226,13 @@ class App(tk.Tk):
         self.log_text.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         self.log_text.pack(fill="both", expand=True)
+
+    def _on_tab_changed(self, event=None):
+        try:
+            if self.nb.select() == str(self.tab_store):
+                self._refresh_cap_info()
+        except Exception:
+            pass          # 切页签时读档失败绝不该弹框打断
 
     def _card(self, parent, title, hint=None):
         """做一张白底卡片，返回内容区 Frame。"""
@@ -207,7 +253,7 @@ class App(tk.Tk):
         ttk.Label(p, text="最常用的几件事", style="H1.TLabel").pack(anchor="w", pady=(0, 8))
 
         b = self._card(p, "一键全改",
-                       "一次做完四件事：铜钱元宝拉满 → 全员属性拉满 "
+                       "依次做这几件事：铜钱元宝拉满 → 全员属性拉满 "
                        "→ 全员长寿健康易孕 → 清除全员负面状态。\n"
                        "（仓库和兵力在「仓库与势力」页，单独点，免得一次动太多不好排查。）")
         ttk.Button(b, text="★ 一键全改", style="Accent.TButton",
@@ -222,6 +268,42 @@ class App(tk.Tk):
                         ("全员年轻化（年龄压到 20 上下）", self.act_young),
                         ("清除全员负面状态", self.act_clear_status)):
             ttk.Button(b, text=txt, command=fn).pack(side="left", padx=(0, 6))
+
+        b = self._card(p, "★ 家族成员一键修改（含幼年成员）",
+                       "一次作用于【全部族人】，包括还没成年的孩子 —— 幼年成员在存档里就是"
+                       "年龄很小、属性只有个位数的那几个。\n"
+                       "年龄 → 目标值（双向：孩子会被提到 20 岁，成年人会被压到 20 岁）；"
+                       "属性 文/武/商/艺/心情/声誉/魅力/健康/计谋 全部拉满（只升不降）；"
+                       "技能 1–6 每人随机分配，天赋潜力一起写满。\n"
+                       "刻意不动：天赋类型（那是「你擅长哪一门」，乱改会打乱原有培养方向）、"
+                       "第 30 格（实测在每一行都等于年龄，不是体力）、"
+                       "以及族人行的「熟练度」格 —— 那一格的位置没有在真机上核对过，"
+                       "实测取值只有 0 和 1，而门客那个核对过的熟练度格是完整的 0–100 分布，"
+                       "所以默认不写它（想强行写请勾下面的框）。")
+        row = ttk.Frame(b, style="Card.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="年龄：", style="Card.TLabel").pack(side="left")
+        self.fam_age = tk.IntVar(value=20)
+        ttk.Spinbox(row, from_=0, to=999, textvariable=self.fam_age, width=6).pack(side="left")
+        ttk.Label(row, text="  属性值：", style="Card.TLabel").pack(side="left")
+        self.fam_value = tk.IntVar(value=100)
+        ttk.Spinbox(row, from_=0, to=100, textvariable=self.fam_value, width=6).pack(side="left")
+        ttk.Label(row, text="  天赋潜力：", style="Card.TLabel").pack(side="left")
+        self.fam_potential = tk.IntVar(value=100)
+        ttk.Spinbox(row, from_=0, to=100, textvariable=self.fam_potential,
+                    width=6).pack(side="left")
+        ttk.Label(row, text="  熟练度：", style="Card.TLabel").pack(side="left")
+        self.fam_prof = tk.IntVar(value=100)
+        ttk.Spinbox(row, from_=0, to=100, textvariable=self.fam_prof, width=6).pack(side="left")
+        ttk.Button(row, text="★ 一键修改全家族", style="Accent.TButton",
+                   command=self.act_family_all).pack(side="left", padx=10)
+
+        row = ttk.Frame(b, style="Card.TFrame")
+        row.pack(fill="x", pady=(6, 0))
+        self.fam_force_prof = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text="连族人的「熟练度」格也一起写（该格位未经真机核对，"
+                                  "实测只有 0/1 两个值，可能不是熟练度 —— 不放心就别勾）",
+                        variable=self.fam_force_prof).pack(side="left")
 
         b = self._card(p, "撤销",
                        "按「修改历史」倒着撤销。撤销前也会先备份当前状态，撤错了还能撤回来。")
@@ -354,6 +436,8 @@ class App(tk.Tk):
                    ).pack(side="left", padx=6)
         ttk.Button(row, text="应用到全部族人", command=lambda: self.act_set_traits_all("member")
                    ).pack(side="left")
+        ttk.Button(row, text="★ 家族全员一键修改（含幼年）", style="Accent.TButton",
+                   command=self.act_family_all).pack(side="left", padx=(14, 0))
 
     def _pull_selection(self):
         """选中某行时，把它的当前值填进下面的输入框，方便照着改。"""
@@ -374,6 +458,11 @@ class App(tk.Tk):
         p = self.tab_store
         ttk.Label(p, text="仓库与势力", style="H1.TLabel").pack(anchor="w", pady=(0, 8))
 
+        # 勾选器的容器先建好，即使名字表读不到也不会 AttributeError
+        self.item_vars = {}
+        self.item_boxes = {}
+        self._owned = set()
+
         b = self._card(p, "仓库每种物品拉满",
                        "遍历仓库里的每一种物品，把不足的补到目标值。默认【只补不足】："
                        "本来就已经超过目标值的物品原样不动 —— 真实存档里粮食有 5005 万，"
@@ -389,17 +478,84 @@ class App(tk.Tk):
         ttk.Button(row, text="★ 全部拉满", style="Accent.TButton",
                    command=self.act_all_items).pack(side="left", padx=6)
 
-        b = self._card(p, "往仓库加物品",
-                       "格式「编号:数量」，多种用逗号隔开，例如 169:10, 170:5。"
-                       "编号可以到「工具 → 查看存档结构」里翻。")
+        b = self._card(p, "往仓库加物品（勾选式）",
+                       "游戏里的物品都在下面列好了，直接勾要加的，不用再去查编号。"
+                       "名称是从游戏程序集里提取的对照表 —— 真实存档里出现过的 116 个编号、"
+                       "以及物价表里的 32 个编号，全部能对上。")
         row = ttk.Frame(b, style="Card.TFrame")
         row.pack(fill="x")
-        self.items_spec = tk.StringVar()
-        ttk.Entry(row, textvariable=self.items_spec, width=44).pack(side="left")
+        ttk.Label(row, text="搜索：", style="Card.TLabel").pack(side="left")
+        self.item_filter = tk.StringVar()
+        fe = ttk.Entry(row, textvariable=self.item_filter, width=16)
+        fe.pack(side="left")
+        fe.bind("<Return>", lambda e: self.filter_items())
+        ttk.Button(row, text="筛选", command=self.filter_items).pack(side="left", padx=4)
+        ttk.Button(row, text="全选", command=lambda: self.check_items(True)).pack(side="left", padx=2)
+        ttk.Button(row, text="全不选", command=lambda: self.check_items(False)).pack(side="left", padx=2)
+        ttk.Button(row, text="反选", command=self.invert_items).pack(side="left", padx=2)
+        self.only_owned = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text="只显示仓库已有的", variable=self.only_owned,
+                        command=self.filter_items).pack(side="left", padx=8)
+        self.item_sel_var = tk.StringVar(value="已选 0 种")
+        ttk.Label(row, textvariable=self.item_sel_var, style="Hint.TLabel"
+                  ).pack(side="left", padx=4)
+
+        wrap = ttk.Frame(b, style="Card.TFrame")
+        wrap.pack(fill="x", pady=(8, 0))
+        self.item_canvas = tk.Canvas(wrap, height=200, highlightthickness=0,
+                                     background=COLORS["card"])
+        vsb = ttk.Scrollbar(wrap, orient="vertical", command=self.item_canvas.yview)
+        self.item_canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        self.item_canvas.pack(side="left", fill="both", expand=True)
+        self.item_inner = ttk.Frame(self.item_canvas, style="Card.TFrame")
+        self.item_canvas.create_window((0, 0), window=self.item_inner, anchor="nw")
+        self.item_inner.bind("<Configure>", lambda e: self.item_canvas.configure(
+            scrollregion=self.item_canvas.bbox("all")))
+        for w in (self.item_canvas, self.item_inner):
+            w.bind("<MouseWheel>", self._item_wheel)
+
+        row = ttk.Frame(b, style="Card.TFrame")
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Label(row, text="数量：", style="Card.TLabel").pack(side="left")
+        self.item_qty = tk.IntVar(value=9999999)
+        ttk.Spinbox(row, from_=1, to=999999999, textvariable=self.item_qty,
+                    width=12).pack(side="left")
         self.item_mode = tk.StringVar(value="增加")
         ttk.Combobox(row, textvariable=self.item_mode, width=8, state="readonly",
                      values=["增加", "覆盖"]).pack(side="left", padx=6)
-        ttk.Button(row, text="加进去", command=self.act_add_items).pack(side="left")
+        ttk.Button(row, text="★ 加入仓库", style="Accent.TButton",
+                   command=self.act_add_items_selected).pack(side="left", padx=6)
+        if ITEM_NAMES:
+            ttk.Button(row, text="清空勾选", command=lambda: self.check_items(False)
+                       ).pack(side="left")
+            self._build_item_boxes()
+        else:
+            ttk.Label(row, text="⚠ item_names.json 没读到，物品名不可用（请重新打包或补上该文件）",
+                      style="Hint.TLabel").pack(side="left", padx=8)
+
+        b = self._card(p, "★ 库存上限（仓库满了、买东西存不进去）",
+                       "存档里【没有】叫「库存容量」的字段 —— 游戏是从库房建筑算出来的。"
+                       "推断的位置是 FamilyData 第 3 项。证据链：仓库里的物品种类数已经"
+                       "超过了这个上限，正好就是「仓库满了、买进来的东西存不下」这个症状；"
+                       "另一个候选（府邸第 3 项 = 410）比种类数大、不会满，与症状矛盾，已排除。"
+                       "种类数之所以能超过上限，是本工具的「加物品」直接往列表里追加、"
+                       "绕过了游戏的入库检查。\n"
+                       "带【只增不减】：只会把上限调高，比目标值大的不会被改小。"
+                       "改完请进游戏看一眼仓库界面的「库存 (@/$)」有没有跟着变；"
+                       "没变就用「撤销上一次改动」退回来。")
+        row = ttk.Frame(b, style="Card.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="上限设为：", style="Card.TLabel").pack(side="left")
+        self.inv_cap = tk.IntVar(value=9999)
+        ttk.Spinbox(row, from_=1, to=99999999, textvariable=self.inv_cap,
+                    width=12).pack(side="left")
+        ttk.Button(row, text="★ 提高库存上限", style="Accent.TButton",
+                   command=self.act_inventory_cap).pack(side="left", padx=8)
+        ttk.Button(row, text="刷新当前值", command=self._refresh_cap_info).pack(side="left")
+        self.inv_info = tk.StringVar(value="（打开本页或点「刷新当前值」可读出存档里的现值）")
+        ttk.Label(b, textvariable=self.inv_info, style="Hint.TLabel",
+                  wraplength=880, justify="left").pack(anchor="w", pady=(6, 0))
 
         b = self._card(p, "兵力", "禁军兵力与士气（兵力只增不减）。")
         row = ttk.Frame(b, style="Card.TFrame")
@@ -610,7 +766,7 @@ class App(tk.Tk):
     # ============================================================ 常用动作
 
     def act_oneclick(self):
-        # 就用上面那份 ONECLICK，不在这里另写一遍参数
+        # 用上面那一份组合，不在这里另写一遍参数
         self.apply([(k, {}) for k in ONECLICK], "一键全改")
 
     def act_money(self):
@@ -633,7 +789,7 @@ class App(tk.Tk):
             return
         try:
             # target 必须是【文件】路径：record_history 存的是 save.path，
-            # 传目录进去会一条都匹配不上。
+            # 传目录进去会一条都匹配不上（这里传的也是 FILES[0]）。
             msg, err = hist.undo(target=str(self.files[0]))
         except Exception as e:
             messagebox.showerror(APP_TITLE, f"撤销失败：\n{e}")
@@ -746,9 +902,171 @@ class App(tk.Tk):
         self.apply([("add-items", {"items": spec, "mode": mode})],
                    f"往仓库加物品（{'覆盖' if mode == 'set' else '累加'}）")
 
+    # ---- 物品勾选器 ----------------------------------------------------
+
+    ITEM_COLS = 4
+
+    def _build_item_boxes(self):
+        """把物品名表铺成勾选框。
+
+        285 个勾选框一次性建好、之后只做 grid/grid_remove 显隐，
+        不在每次筛选时重建控件 —— 重建会明显卡顿，而且勾选状态会丢。
+        """
+        self.item_vars = {}
+        self.item_boxes = {}
+        self._owned = set()
+        for n, iid in enumerate(sorted(ITEM_NAMES, key=int)):
+            var = tk.BooleanVar(value=False)
+            cb = ttk.Checkbutton(self.item_inner, text=f"{iid}  {ITEM_NAMES[iid]}",
+                                 variable=var, command=self._refresh_item_count)
+            cb.grid(row=n // self.ITEM_COLS, column=n % self.ITEM_COLS,
+                    sticky="w", padx=(0, 12))
+            cb.bind("<MouseWheel>", self._item_wheel)
+            self.item_vars[iid] = var
+            self.item_boxes[iid] = cb
+
+    def _item_wheel(self, event):
+        self.item_canvas.yview_scroll(int(-event.delta / 120), "units")
+
+    def _owned_ids(self) -> set:
+        """当前存档仓库里已有的物品编号（用于「只显示已有的」和标记）。"""
+        if not self.files:
+            return set()
+        try:
+            data = se.Save(self.files[0]).data
+            rows = se.get_path(data, "Prop_have.value")
+        except Exception:
+            return set()
+        return {str(r[0]) for r in rows if isinstance(r, list) and r}
+
+    def filter_items(self):
+        """按关键词 / 是否已有 显示或隐藏勾选框，并把可见的重新排布紧实。"""
+        if not getattr(self, "item_boxes", None):
+            return
+        kw = self.item_filter.get().strip()
+        want_owned = self.only_owned.get()
+        if want_owned:
+            self._owned = self._owned_ids()
+        shown = 0
+        for iid in sorted(ITEM_NAMES, key=int):
+            cb = self.item_boxes[iid]
+            ok = (not kw) or (kw in ITEM_NAMES[iid]) or (kw in iid)
+            if ok and want_owned and iid not in self._owned:
+                ok = False
+            if ok:
+                cb.grid(row=shown // self.ITEM_COLS, column=shown % self.ITEM_COLS,
+                        sticky="w", padx=(0, 12))
+                shown += 1
+            else:
+                cb.grid_remove()
+        self.item_canvas.configure(scrollregion=self.item_canvas.bbox("all"))
+        self.item_canvas.yview_moveto(0)
+        self._refresh_item_count()
+
+    def _visible_ids(self) -> list:
+        return [iid for iid, cb in self.item_boxes.items() if cb.winfo_manager()]
+
+    def check_items(self, state: bool):
+        """全选 / 全不选。作用于【当前可见】的那些 —— 先搜索再全选，
+        就能一次勾上「所有酒」这类一组物品，而不是把 285 种全勾上。"""
+        if not getattr(self, "item_boxes", None):
+            return
+        for iid in self._visible_ids():
+            self.item_vars[iid].set(state)
+        self._refresh_item_count()
+
+    def invert_items(self):
+        if not getattr(self, "item_boxes", None):
+            return
+        for iid in self._visible_ids():
+            self.item_vars[iid].set(not self.item_vars[iid].get())
+        self._refresh_item_count()
+
+    def _refresh_item_count(self):
+        if not getattr(self, "item_vars", None):
+            return
+        n = sum(1 for v in self.item_vars.values() if v.get())
+        total = len(self.item_vars)
+        self.item_sel_var.set(f"已选 {n} / {total} 种" + ("" if n else ""))
+
+    def act_add_items_selected(self):
+        if not getattr(self, "item_vars", None):
+            messagebox.showwarning(APP_TITLE, "物品名表没读到，无法勾选。")
+            return
+        picked = [iid for iid, v in self.item_vars.items() if v.get()]
+        if not picked:
+            messagebox.showwarning(APP_TITLE, "还没勾选任何物品。先在上面勾几个，或点「全选」。")
+            return
+        try:
+            qty = int(self.item_qty.get())
+        except Exception:
+            messagebox.showwarning(APP_TITLE, "数量要填一个整数。")
+            return
+        spec = ",".join(f"{iid}:{qty}" for iid in sorted(picked, key=int))
+        mode = "set" if self.item_mode.get() == "覆盖" else "add"
+        # 日志里别把 285 项全打出来，只报个数和几个例子
+        head = "、".join(f"{iid} {ITEM_NAMES.get(iid, '')}" for iid in sorted(picked, key=int)[:6])
+        more = f" 等 {len(picked)} 种" if len(picked) > 6 else ""
+        self.apply([("add-items", {"items": spec, "mode": mode})],
+                   f"往仓库加 {len(picked)} 种物品（{'覆盖' if mode == 'set' else '累加'}）"
+                   f"：{head}{more} × {qty}")
+
+    # ---- 家族全员一键修改 ----------------------------------------------
+
+    def act_family_all(self):
+        self.apply([("member-all-max", {"age": self.fam_age.get(),
+                                        "value": self.fam_value.get(),
+                                        "potential": self.fam_potential.get(),
+                                        "proficiency": self.fam_prof.get(),
+                                        "force_prof": 1 if self.fam_force_prof.get() else 0,
+                                        "talent_mode": "keep",
+                                        "skill_mode": "random"})],
+                   "★ 家族全员一键修改（含幼年成员）")
+
+    def act_inventory_cap(self):
+        self.apply([("inventory-cap", {"cap": self.inv_cap.get()})], "提高库存上限")
+
     def act_garrison(self):
         self.apply([("garrison", {"troops": self.troops.get(), "morale": self.morale.get()})],
                    "设置禁军兵力")
+
+    def _refresh_cap_info(self):
+        """把存档里的库存上限现值和仓库种类数读出来摆在一起。
+
+        这两个数字并排一看就知道推断对不对：种类数 > 上限 = 仓库满了，
+        正是「买东西存不进去」的症状。
+        """
+        if not self.files:
+            self.inv_info.set("还没选存档。先点「自动检测」或「浏览…」。")
+            return
+        try:
+            data = se.Save(self.files[0]).data
+            # ⚠ 存档里这一格是【字符串】（'80'），直接和 int 比会抛
+            #   TypeError: '>' not supported between 'int' and 'str'。
+            #   显示按原样、比较用转出来的数字。
+            cap_raw = se.get_path(data, "FamilyData.value[2]")
+            try:
+                cap = int(float(cap_raw))
+            except (TypeError, ValueError):
+                cap = None
+            rows = se.get_path(data, "Prop_have.value")
+            kinds = len(rows)
+            total = 0
+            for r in rows:
+                if isinstance(r, list) and len(r) >= 2:
+                    try:
+                        total += int(float(r[1]))
+                    except (TypeError, ValueError):
+                        pass
+            full = ""
+            if cap is not None:
+                full = (" —— 种类数已经超过上限，所以买进来的东西存不下"
+                        if kinds > cap else " —— 还没超上限")
+            self.inv_info.set(
+                f"存档现值：库存上限 = {cap_raw}，仓库里有 {kinds} 种物品"
+                f"（合计 {total:,} 件）{full}")
+        except Exception as e:
+            self.inv_info.set(f"读不出来：{type(e).__name__}: {e}")
 
     # ============================================================ 工具
 

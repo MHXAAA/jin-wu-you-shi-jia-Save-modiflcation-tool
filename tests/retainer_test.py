@@ -15,44 +15,21 @@
 全程只碰副本 _rtest\\0。
 """
 import json
-import os
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def _resolve_src():
-    r"""测试用存档从哪来 —— 找不到就现场合成一份。
-
-    优先级：
-      1. 环境变量 WUJIN_SAVE_SRC 指的目录
-      2. 项目旁边的 0\ （放一份你自己的存档副本进去）
-      3. 都没有 → 用 make_fixture 合成一份
-
-    本测试【绝不】读写真存档，所有改动都发生在临时目录的副本上。
-    返回值第二位表示「是不是合成出来的」。
-    """
-    env = os.environ.get("WUJIN_SAVE_SRC")
-    if env and (Path(env) / "GameData.es3").exists():
-        return Path(env), False
-    for cand in (ROOT / "0", ROOT.parent / "0"):
-        if (cand / "GameData.es3").exists():
-            return cand, False
-    return None, True
-
-
-def _dump(data):
-    """按存档真实格式序列化：单行、无空格、中文原样。"""
-    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-
-
-SRC, SYNTHETIC = _resolve_src()
-RT = Path(tempfile.gettempdir()) / "wujin_tmp_rtest"    # 中间产物丢临时目录
+sys.path.insert(0, str(ROOT / "tests"))
+import make_fixture                             # noqa: E402
+make_fixture.main()                             # 缺夹具就现场生成
+sys.path.pop(0)
+WS = ROOT.parent
+SRC = ROOT / "tests" / "sample-save" / "Z0"    # 现场生成的夹具目录
+import tempfile                                 # noqa: E402
+RT = Path(tempfile.gettempdir()) / "_wujin_rtest"
 WD = RT / "0"
-GD = WD / "GameData.es3"
+GD = WD / "gamedata"                           # 夹具文件名就是 gamedata
 
 sys.path.insert(0, str(ROOT))
 import save_editor as se           # noqa: E402
@@ -71,22 +48,14 @@ def check(name, ok, detail=""):
 
 
 def main():
+    if not SRC.exists():
+        print(f"[跳过] 没有可用的测试存档：{SRC}")
+        return 0
+
     if RT.exists():
         shutil.rmtree(RT)
     RT.mkdir(parents=True)
-    if SYNTHETIC:
-        import make_fixture
-        print("[说明] 没找到外部存档副本，用 make_fixture 合成一份来测"
-              "（不涉及任何真实存档）")
-        WD.mkdir(parents=True)
-        data = make_fixture.build()
-        # 合成存档里那行门客过不了引擎的 22 格红线（第 8 格等），
-        # 直接用引擎自带的合法模板当样板，生成器才拿得到模板。
-        data["MenKe_Now"]["value"] = [list(se.MENKE_TEMPLATE)]
-        GD.write_text(_dump(data), encoding="utf-8")
-    else:
-        shutil.copytree(SRC, WD)
-    TOP_FIELDS = len(se.Save(GD).data)
+    shutil.copytree(SRC, WD)
 
     presets = se.load_presets()
 
@@ -176,7 +145,7 @@ def main():
     check("重新序列化与磁盘内容逐字节一致（存档格式没坏）", raw == rt,
           f"{len(raw)} vs {len(rt)}")
     check("__type 元数据保留", "__type" in back["MenKe_Now"])
-    check("顶层字段数没变", len(back) == TOP_FIELDS,
+    check("顶层字段数没变", len(back) == len(se.Save(SRC / "gamedata").data),
           f"{len(back)}")
     check("文件确实变大了（说明真写进去了）", len(raw) > len(before_disk),
           f"{len(before_disk)} → {len(raw)}")

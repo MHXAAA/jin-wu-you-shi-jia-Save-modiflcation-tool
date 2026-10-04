@@ -26,9 +26,9 @@
    所以可写状态（历史记录、上次用的存档路径）绝不能写进 `sys._MEIPASS`，
    否则每次退出都丢，而且一声不吭。见 `paths.py` 里的 `res_dir()` / `state_dir()`。
 
-3. **`--windowed` 和 `--console` 必须分成两个构建。**
-   图形界面版不能有控制台黑窗，而控制台版需要 stdout。
-   这个脚本只负责图形界面版。
+3. **图形界面必须用 `--windowed`。**
+   否则双击后会挂一个黑色控制台窗口，很难看，关掉它还可能把程序一起关掉。
+   （代价是 `print` 出来的信息没人看，所以任何调试信息都不该只在 `print` 里。）
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ NAME = "吾今有世家存档编辑器"
 ENTRY = "gui.py"
 
 # 只读资源：打进 exe 里，运行时从 sys._MEIPASS 取（见 paths.py）
-DATA_FILES = ["presets.json", "icon.ico"]
+DATA_FILES = ["presets.json", "icon.ico", "item_names.json"]
 
 # 显式声明：PyInstaller 的静态分析看不到这些延迟导入
 HIDDEN = ["paths", "history"]

@@ -5,12 +5,15 @@ import json
 import sys
 from pathlib import Path
 
-ED = Path(r"C:\Users\Administrator\Documents\deepseek-harness\default-workspace\wujin-save-editor")
+ED = Path(__file__).resolve().parent.parent          # 本脚本在 tests\ 下
 sys.path.insert(0, str(ED))
+sys.path.insert(0, str(ED / "tests"))
 import save_editor as se   # noqa: E402
 
-WS = Path(r"C:\Users\Administrator\Documents\deepseek-harness\default-workspace")
-COPY = WS / "0" / "GameData.es3"
+# 夹具现场生成，不依赖开发机上的任何路径
+import make_fixture        # noqa: E402
+make_fixture.main()
+COPY = ED / "tests" / "sample-save" / "Z0" / "gamedata"
 
 ok = fail = 0
 
