@@ -308,40 +308,77 @@ with mock.patch.object(G.messagebox, "showinfo", rec("info")), \
 
     print()
     print("=" * 96)
-    print("七之三、库存上限（解决「仓库满了买不进去」）")
+    print("七之三、库房容量（爆仓：东西买不进去）")
     print("=" * 96)
-    cap_before = str(se.get_path(se.Save(TARGET).data, "FamilyData.value[2]"))
-    kinds = len(se.get_path(se.Save(TARGET).data, "Prop_have.value"))
-    print(f"        存档现值：库存上限 = {cap_before}，仓库物品种类 = {kinds}")
-    check("上限确实比种类数小（这正是爆仓的证据）", int(float(cap_before)) < kinds,
-          f"上限 {cap_before} vs 种类 {kinds}")
+    # 游戏文案：「（物品数量：@，库房容量：$）」+「库房容量已满，请在府邸建造或升级库房！」
+    # 所以容量在【府邸】数据里，而且比的是【物品数量】，不是物品种类数。
+    d_now = se.Save(TARGET).data
+    cap_before = str(se.get_path(d_now, "Fudi_now.value[0][2]"))
+    cap_copy = str(se.get_path(d_now, "Fudi_now.value[0][4]"))
+    kinds = len(se.get_path(d_now, "Prop_have.value"))
+    total = sum(int(float(r[1])) for r in se.get_path(d_now, "Prop_have.value")
+                if isinstance(r, list) and len(r) >= 2)
+    print(f"        存档现值：库房容量 = {cap_before}（副本 {cap_copy}），"
+          f"仓库 {kinds} 种、合计 {total:,} 件")
+    check("容量与它的副本在夹具里相等", cap_before == cap_copy,
+          f"{cap_before} vs {cap_copy}")
+    check("物品总数量确实超过容量（这就是爆仓）", total > int(float(cap_before)),
+          f"总量 {total} vs 容量 {cap_before}")
 
     app.nb.select(app.tab_store)
     app._refresh_cap_info()
     info = app.inv_info.get()
-    check("界面读出了现值", cap_before in info and str(kinds) in info, info)
-    check("界面点明了「超过上限」", "超过上限" in info, info)
+    check("界面读出了容量现值", cap_before in info, info)
+    check("界面读出了物品总数量", f"{total:,}" in info, info)
+    check("界面点明了超过容量", "超过" in info, info)
 
-    fd_before = list(se.get_path(se.Save(TARGET).data, "FamilyData.value"))
-    app.inv_cap.set(9999)
+    fd_before = list(se.get_path(se.Save(TARGET).data, "Fudi_now.value")[0])
+    app.inv_cap.set(99999999)
     captured.clear()
     app.act_inventory_cap()
     check("按钮把 inventory-cap 交给了统一落盘入口",
           captured.get("jobs", [{}])[0][0] == "inventory-cap", captured.get("jobs"))
-    cap_after = str(se.get_path(se.Save(TARGET).data, "FamilyData.value[2]"))
-    check("上限被提高", cap_after == "9999", cap_after)
-    check("提高后不再小于种类数（能存进去了）", int(cap_after) >= kinds,
-          f"{cap_after} vs {kinds}")
+    d_after = se.Save(TARGET).data
+    cap_after = str(se.get_path(d_after, "Fudi_now.value[0][2]"))
+    cap_after2 = str(se.get_path(d_after, "Fudi_now.value[0][4]"))
+    check("容量被提高", cap_after == "99999999", cap_after)
+    check("副本一起提高（两个值不会对不上）", cap_after2 == "99999999", cap_after2)
+    check("提高后容量已大于物品总数量", int(float(cap_after)) > total,
+          f"{cap_after} vs {total}")
 
-    cap_now = str(se.get_path(se.Save(TARGET).data, "FamilyData.value[2]"))
     app.inv_cap.set(1)
     app.act_inventory_cap()
-    cap_now2 = str(se.get_path(se.Save(TARGET).data, "FamilyData.value[2]"))
-    check("只增不减：目标值更小时不动它", cap_now == cap_now2, f"{cap_now} → {cap_now2}")
+    d_low = se.Save(TARGET).data
+    check("只增不减：目标值更小时一个字都不改",
+          str(se.get_path(d_low, "Fudi_now.value[0][2]")) == "99999999",
+          str(se.get_path(d_low, "Fudi_now.value[0][2]")))
 
-    fd_after = list(se.get_path(se.Save(TARGET).data, "FamilyData.value"))
-    changed = [i for i in range(len(fd_before)) if str(fd_before[i]) != str(fd_after[i])]
-    check("FamilyData 只改了第 3 项，其余原样", changed == [2], f"被改的下标 {changed}")
+    fd_after = list(se.get_path(se.Save(TARGET).data, "Fudi_now.value")[0])
+    changed = [i for i in range(min(len(fd_before), len(fd_after)))
+               if str(fd_before[i]) != str(fd_after[i])]
+    check("府邸那一行只改了第 3、5 项，其余原样", changed == [2, 4],
+          f"被改的下标 {changed}")
+
+    print()
+    print("=" * 96)
+    print("七之四、数量归位（容量抬不动时的真正解法）")
+    print("=" * 96)
+    app.qty_norm.set(999)
+    captured.clear()
+    app.act_item_qty_normal()
+    check("按钮把 item-qty-normal 交给了统一落盘入口",
+          captured.get("jobs", [{}])[0][0] == "item-qty-normal", captured.get("jobs"))
+    ov2 = captured["jobs"][0][1]
+    check("允许往下压（only_up=0）", str(ov2.get("only_up")) == "0", ov2)
+    d_norm = se.Save(TARGET).data
+    rows = se.get_path(d_norm, "Prop_have.value")
+    qs = [int(float(r[1])) for r in rows if isinstance(r, list) and len(r) >= 2]
+    check("每种物品都被改成 999", all(q == 999 for q in qs), sorted(set(qs))[:6])
+    new_total = sum(qs)
+    check("总数量降到容量以下（爆仓解除）",
+          new_total <= int(float(se.get_path(d_norm, "Fudi_now.value[0][2]"))) or
+          new_total < total, f"总量 {new_total} vs 原 {total}")
+    print(f"        总数量 {total:,} → {new_total:,}")
 
     print()
     print("=" * 96)

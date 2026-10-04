@@ -88,12 +88,13 @@ REQUIRED_PRESETS = [
     "money", "member-max", "member-immortal", "member-young",
     "member-clear-status", "all-items-max", "add-items", "garrison",
     "retainers-10", "person-traits", "member-all-max", "inventory-cap",
+    "item-qty-normal",
 ]
 
 # 「一键全改」用的组合。数值一律以 presets.json 为准，这里不覆盖任何参数 ——
 # 以前这里自己写死过 copper，配上 only_up 之后一键全改就再也加不了钱。
 #
-# inventory-cap 是本轮加的：它只把库存上限调高、带 only_up，
+# inventory-cap 是本轮加的：它只把库房容量调高、带 only_up，
 # 属于「解决爆仓」的安全项，放进一键全改不会伤到已有数据。
 # ⚠ member-all-max【没有】放进来 —— 它会把年龄统一写成 20（包括把幼年成员
 #   提到 20 岁），是需求里单独要的一个按钮。塞进「一键全改」会让老用户
@@ -208,7 +209,7 @@ class App(tk.Tk):
         self.nb.add(self.tab_tools, text="工具")
         self.nb.add(self.tab_log, text="改动日志")
 
-        # 切到「仓库与势力」页时顺手把库存上限的现值读出来，
+        # 切到「仓库与势力」页时顺手把库房容量的现值读出来，
         # 用户一眼就能看到「种类数 > 上限」这个爆仓证据。
         self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
@@ -534,28 +535,42 @@ class App(tk.Tk):
             ttk.Label(row, text="⚠ item_names.json 没读到，物品名不可用（请重新打包或补上该文件）",
                       style="Hint.TLabel").pack(side="left", padx=8)
 
-        b = self._card(p, "★ 库存上限（仓库满了、买东西存不进去）",
-                       "存档里【没有】叫「库存容量」的字段 —— 游戏是从库房建筑算出来的。"
-                       "推断的位置是 FamilyData 第 3 项。证据链：仓库里的物品种类数已经"
-                       "超过了这个上限，正好就是「仓库满了、买进来的东西存不下」这个症状；"
-                       "另一个候选（府邸第 3 项 = 410）比种类数大、不会满，与症状矛盾，已排除。"
-                       "种类数之所以能超过上限，是本工具的「加物品」直接往列表里追加、"
-                       "绕过了游戏的入库检查。\n"
-                       "带【只增不减】：只会把上限调高，比目标值大的不会被改小。"
-                       "改完请进游戏看一眼仓库界面的「库存 (@/$)」有没有跟着变；"
+        b = self._card(p, "★ 库房容量（爆仓：东西买不进去 / 存不进去）",
+                       "容量卡在【府邸】的库房上，而且比的是【物品数量】而不是种类 —— "
+                       "这两条都是游戏自己的文案写明的：\n"
+                       "·「（物品数量：@，库房容量：$）」\n"
+                       "·「库房容量已满，请在府邸建造或升级库房！」\n"
+                       "·「（库房容量不足,无法交易）」「(库房容量已满，无法购买)」\n"
+                       "所以这里改的是府邸数据的第 3 项（真实存档里是 410），"
+                       "第 5 项是它的副本、一起抬，免得两个值对不上。\n"
+                       "带【只增不减】：只会把容量调高，比目标值大的不会被改小。"
+                       "改完进游戏看一眼仓库面板的「库房容量」是否变大；"
                        "没变就用「撤销上一次改动」退回来。")
         row = ttk.Frame(b, style="Card.TFrame")
         row.pack(fill="x")
-        ttk.Label(row, text="上限设为：", style="Card.TLabel").pack(side="left")
-        self.inv_cap = tk.IntVar(value=9999)
-        ttk.Spinbox(row, from_=1, to=99999999, textvariable=self.inv_cap,
-                    width=12).pack(side="left")
-        ttk.Button(row, text="★ 提高库存上限", style="Accent.TButton",
+        ttk.Label(row, text="容量设为：", style="Card.TLabel").pack(side="left")
+        self.inv_cap = tk.IntVar(value=99999999)
+        ttk.Spinbox(row, from_=1, to=2000000000, textvariable=self.inv_cap,
+                    width=13).pack(side="left")
+        ttk.Button(row, text="★ 提高库房容量", style="Accent.TButton",
                    command=self.act_inventory_cap).pack(side="left", padx=8)
         ttk.Button(row, text="刷新当前值", command=self._refresh_cap_info).pack(side="left")
         self.inv_info = tk.StringVar(value="（打开本页或点「刷新当前值」可读出存档里的现值）")
         ttk.Label(b, textvariable=self.inv_info, style="Hint.TLabel",
                   wraplength=880, justify="left").pack(anchor="w", pady=(6, 0))
+
+        ttk.Label(b, text="如果容量抬到很大仍然提示「库房容量已满」，"
+                          "说明要动的是数量本身 —— 用下面这个把每种物品压回合理值。",
+                  style="Hint.TLabel", wraplength=880,
+                  justify="left").pack(anchor="w", pady=(8, 0))
+        row = ttk.Frame(b, style="Card.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="每种物品数量改为：", style="Card.TLabel").pack(side="left")
+        self.qty_norm = tk.IntVar(value=999)
+        ttk.Spinbox(row, from_=1, to=9999999, textvariable=self.qty_norm,
+                    width=10).pack(side="left")
+        ttk.Button(row, text="★ 数量归位（会砍掉多余的）",
+                   command=self.act_item_qty_normal).pack(side="left", padx=8)
 
         b = self._card(p, "兵力", "禁军兵力与士气（兵力只增不减）。")
         row = ttk.Frame(b, style="Card.TFrame")
@@ -1024,27 +1039,32 @@ class App(tk.Tk):
                    "★ 家族全员一键修改（含幼年成员）")
 
     def act_inventory_cap(self):
-        self.apply([("inventory-cap", {"cap": self.inv_cap.get()})], "提高库存上限")
+        self.apply([("inventory-cap", {"cap": self.inv_cap.get()})], "提高库房容量")
+
+    def act_item_qty_normal(self):
+        """把每种物品数量统一改成指定值 —— 这是会【减少】数据的操作。"""
+        self.apply([("item-qty-normal", {"value": self.qty_norm.get(), "only_up": 0})],
+                   "数量归位（每种物品统一改为指定值）")
 
     def act_garrison(self):
         self.apply([("garrison", {"troops": self.troops.get(), "morale": self.morale.get()})],
                    "设置禁军兵力")
 
     def _refresh_cap_info(self):
-        """把存档里的库存上限现值和仓库种类数读出来摆在一起。
+        """把府邸的库房容量、仓库物品总数量并排读出来。
 
-        这两个数字并排一看就知道推断对不对：种类数 > 上限 = 仓库满了，
-        正是「买东西存不进去」的症状。
+        游戏是拿「物品总数量」去比「库房容量」（文案：「物品数量：@，库房容量：$」），
+        所以这里必须比【数量】。拿种类数去比是上一版的错误，方向不对。
         """
         if not self.files:
             self.inv_info.set("还没选存档。先点「自动检测」或「浏览…」。")
             return
         try:
             data = se.Save(self.files[0]).data
-            # ⚠ 存档里这一格是【字符串】（'80'），直接和 int 比会抛
+            # ⚠ 这两格在存档里都是【字符串】，直接和 int 比会抛
             #   TypeError: '>' not supported between 'int' and 'str'。
             #   显示按原样、比较用转出来的数字。
-            cap_raw = se.get_path(data, "FamilyData.value[2]")
+            cap_raw = se.get_path(data, "Fudi_now.value[0][2]")
             try:
                 cap = int(float(cap_raw))
             except (TypeError, ValueError):
@@ -1058,13 +1078,13 @@ class App(tk.Tk):
                         total += int(float(r[1]))
                     except (TypeError, ValueError):
                         pass
-            full = ""
+            verdict = ""
             if cap is not None:
-                full = (" —— 种类数已经超过上限，所以买进来的东西存不下"
-                        if kinds > cap else " —— 还没超上限")
+                verdict = (" —— 物品总数量已经超过库房容量，游戏会拒绝入库"
+                           if total > cap else " —— 还没超容量")
             self.inv_info.set(
-                f"存档现值：库存上限 = {cap_raw}，仓库里有 {kinds} 种物品"
-                f"（合计 {total:,} 件）{full}")
+                f"存档现值：库房容量 = {cap_raw}，仓库有 {kinds} 种物品、"
+                f"合计 {total:,} 件{verdict}")
         except Exception as e:
             self.inv_info.set(f"读不出来：{type(e).__name__}: {e}")
 
