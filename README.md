@@ -38,7 +38,7 @@
 不用记参数、不用敲命令、不用背菜单号。
 
 > ### 📥 [**点这里下载最新版**](https://github.com/MHXAAA/jin-wu-you-shi-jia-Save-modiflcation-tool/releases/latest)
-> 下载 `WuJinYouShiJia-SaveEditor-v1.0.exe`，双击即用，不需要装 Python。
+> 下载 `WuJinYouShiJia-SaveEditor-v1.1.exe`（v1.1 新增：物品勾选式选择、库存上限、家族全员一键修改），双击即用，不需要装 Python。
 > （附件名是英文的，原因见 [使用方法](#方式一直接下载可执行程序推荐)）
 
 ---
@@ -65,18 +65,18 @@
 #### 方式一：直接下载可执行程序（推荐）
 
 到 [Releases 页面](https://github.com/MHXAAA/jin-wu-you-shi-jia-Save-modiflcation-tool/releases/latest)
-下载 **`WuJinYouShiJia-SaveEditor-v1.0.exe`**，双击即可运行，**不需要安装 Python**。
+下载 **`WuJinYouShiJia-SaveEditor-v1.1.exe`**，双击即可运行，**不需要安装 Python**。
 
 > ⚠️ **注意文件名是英文的**：GitHub 的 Release 附件名**只接受 ASCII 字符**，
 > 中文文件名会被静默丢弃、退回成没有意义的 `default.exe`。
-> 所以发布出来的附件叫 `WuJinYouShiJia-SaveEditor-v1.0.exe`，
+> 所以发布出来的附件叫 `WuJinYouShiJia-SaveEditor-v1.1.exe`，
 > 但程序运行起来窗口标题仍然是中文的「《吾今有世家》存档编辑器」—— 是同一个程序。
 
 下载后如果浏览器提示「不常见的文件，可能有害」，是因为这个 exe **没有购买代码签名证书**。
 可以选择「保留」。想自己验证的话，比对 SHA256：
 
 ```
-2b1ee96f408c28818eb9b09ef23af3411ebfec1bda46513f04c4b3df06ef1500
+66f95563f4eee0ba7b2a43a84de6482bdf34fccf616d3429849d2721b5a2ca18
 ```
 
 #### 方式二：从源码运行

@@ -111,3 +111,6 @@ $RECYCLE.BIN/
 *.log
 watch_log.txt
 watch_err.txt
+
+# 测试夹具是 make_fixture.py 现场生成的，不入库
+tests/sample-save/
